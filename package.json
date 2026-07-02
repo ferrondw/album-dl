@@ -1,9 +1,9 @@
 {
   "name": "album-dl",
   "version": "1.0.0",
-  "description": "yt-dlp album downloader based on the jellyfin folder structure",
+  "description": "Node app for downloading music using yt-dlp for use in Jellyfin",
   "license": "ISC",
-  "author": "",
+  "author": "ferrondw",
   "type": "module",
   "main": "index.js",
   "scripts": {

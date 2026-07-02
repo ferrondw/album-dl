@@ -1,16 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>album-dl</title>
 </head>
+
 <body>
     <input id="input" type="text">
-    <button onclick="fetch(`/search/${document.getElementById('input').value}`)">download</button>
+    <div>
+        <button onclick="fetch(`/search/${document.getElementById('input').value}`)">song</button>
+        <button onclick="fetch(`/search/album/${document.getElementById('input').value}`)">album</button>
+    </div>
 </body>
 <style>
-    body{
+    body {
         background-color: black;
         display: flex;
         flex-direction: column;
@@ -19,4 +24,5 @@
         height: 95vh;
     }
 </style>
+
 </html>

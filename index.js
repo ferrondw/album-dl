@@ -27,6 +27,16 @@ app.get('/search/:songName', async (req, res) => {
     await embedMetadata(song, filePath);
 });
 
+app.get('/search/album/:albumName', async (req, res) => {
+    const albumId = (await ytmusic.searchAlbums(req.params.albumName))[0].albumId;
+    const album = (await ytmusic.getAlbum(albumId));
+    console.log(album);
+    for (const song of album.songs) { // https://stackoverflow.com/questions/37576685/using-async-await-with-a-foreach-loop
+        let filePath = await downloadSong(song);
+        await embedMetadata(song, filePath);
+    }
+});
+
 app.listen(3000, () => {
     console.log('Server listening at http://localhost:3000');
 });
@@ -53,10 +63,11 @@ async function embedMetadata(song, filePath, album = null) {
 
     // write lyrics to lrc file because youtube delivers lrc formatted lyrics anyways and id3 tags barely work (especially in wmp for some reason)
     await fetch(`https://lyrics.paxsenix.org/youtube/lyrics?id=${song.videoId}`).then(function (response) {
-        return response.text();
+        return response.json();
     }).then(async function (data) {
         const lrcPath = `${filePath.replace(/\.[^\.]+$/, '')}.lrc`; // https://gist.github.com/MarshySwamp/40aefebb39e0eef2d7599ac4050490d9
-        await fs.promises.writeFile(lrcPath, data);
+        if (data.length < 5) return;
+        await fs.promises.writeFile(lrcPath, data.replace(`\n`, `\r\n`));
     }).catch(() => { });
 
     const tags = {
