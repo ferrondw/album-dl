@@ -1,0 +1,17 @@
+{
+  "name": "album-dl",
+  "version": "1.0.0",
+  "description": "yt-dlp album downloader based on the jellyfin folder structure",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "node-id3": "^0.2.9",
+    "ytmusic-api": "^5.3.1"
+  }
+}
