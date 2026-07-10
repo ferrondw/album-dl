@@ -1,10 +1,16 @@
-import { fileURLToPath } from 'url';
+import { FolderNameSanitizer } from './src/utils/FolderNameSanitizer.js';
 import { exec, execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import initClient from './src/bittorrent/client.js';
+import initIndexer from './src/bittorrent/indexer.js';
 import YTMusic from 'ytmusic-api';
 import NodeID3 from 'node-id3';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +21,9 @@ app.use(express.json());
 const ytmusic = new YTMusic();
 await ytmusic.initialize();
 
+initClient(app);
+initIndexer(app);
+
 app.get('/', (req, res) => {
     res.sendFile(`${__dirname}/public/index.html`);
 });
@@ -22,9 +31,7 @@ app.get('/', (req, res) => {
 app.get('/search/:songName', async (req, res) => {
     const song = (await ytmusic.searchSongs(req.params.songName))[0];
     console.log(song);
-
-    let filePath = await downloadSong(song);
-    await embedMetadata(song, filePath);
+    downloadSong(song);
 });
 
 app.get('/search/album/:albumName', async (req, res) => {
@@ -32,26 +39,28 @@ app.get('/search/album/:albumName', async (req, res) => {
     const album = (await ytmusic.getAlbum(albumId));
     console.log(album);
     for (const song of album.songs) { // https://stackoverflow.com/questions/37576685/using-async-await-with-a-foreach-loop
-        let filePath = await downloadSong(song);
-        await embedMetadata(song, filePath);
+        downloadSong(song);
     }
 });
 
-app.listen(3000, () => {
-    console.log('Server listening at http://localhost:3000');
+app.listen(5071, () => {
+    console.log('Server listening at http://localhost:5071');
 });
 
 async function downloadSong(song) {
-    const downloadPath = await execSync(
-        `yt-dlp --js-runtimes node -x --audio-format "mp3" --no-keep-video --no-playlist "https://www.youtube.com/watch?v=${song.videoId}" --print after_move:filepath`
-    ).toString().trim();
+    const { stdout } = await execAsync(
+        `yt-dlp --js-runtimes node -x -P "./temp" --audio-format "mp3" --no-keep-video --no-playlist "https://www.youtube.com/watch?v=${song.videoId}" --print after_move:filepath`
+    );
+    const downloadPath = stdout.trim();
+
     const fileExtension = downloadPath.split('.').slice(-1)[0];
-    const destination = `${__dirname}/temp/${song.album.name} - ${song.name} [${song.videoId}].${fileExtension}`;
+    const fileName = FolderNameSanitizer.sanitize(`${song.album.name} - ${song.name} [${song.videoId}].${fileExtension}`);
+    const destination = `${__dirname}/temp/${fileName}`;
 
     await fs.promises.mkdir(path.dirname(destination), { recursive: true });
     await fs.promises.rename(downloadPath, destination);
 
-    return destination;
+    embedMetadata(song, destination);
 }
 
 async function embedMetadata(song, filePath, album = null) {
@@ -60,15 +69,6 @@ async function embedMetadata(song, filePath, album = null) {
     // youtube by default compresses an image to 90% quality and 544x544, so here i just remove compression and return the original size image
     const coverUrl = `${youtubeAlbum.thumbnails[0].url.split('=')[0]}=s0-l100`;
     const coverImage = Buffer.from(await (await fetch(coverUrl)).arrayBuffer());
-
-    // write lyrics to lrc file because youtube delivers lrc formatted lyrics anyways and id3 tags barely work (especially in wmp for some reason)
-    await fetch(`https://lyrics.paxsenix.org/youtube/lyrics?id=${song.videoId}`).then(function (response) {
-        return response.json();
-    }).then(async function (data) {
-        const lrcPath = `${filePath.replace(/\.[^\.]+$/, '')}.lrc`; // https://gist.github.com/MarshySwamp/40aefebb39e0eef2d7599ac4050490d9
-        if (data.length < 5) return;
-        await fs.promises.writeFile(lrcPath, data.replace(`\n`, `\r\n`));
-    }).catch(() => { });
 
     const tags = {
         title: song.name,
@@ -89,6 +89,15 @@ async function embedMetadata(song, filePath, album = null) {
     }
 
     NodeID3.write(tags, filePath);
+
+    // tried embedding id3 tags but wmp doesn't recognize them?
+    await fetch(`https://lrclib.net/api/search?q=${song.name} ${song.artist.name}`).then(function (response) {
+        return response.json();
+    }).then(async function (data) {
+        const lrcPath = `${filePath.replace(/\.[^\.]+$/, '')}.lrc`; // https://gist.github.com/MarshySwamp/40aefebb39e0eef2d7599ac4050490d9
+        if (data.length < 5) return;
+        await fs.promises.writeFile(lrcPath, data[0].syncedLyrics.replace(`\n`, `\r\n`)); // windows fucked newlines or something no clue but this works
+    }).catch(() => { });
 }
 
 //#region Helpers
