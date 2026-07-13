@@ -1,2 +1,4 @@
-# album-dl
-Node app for downloading music using yt-dlp for use in Jellyfin
+# ytarr
+### yt-dlp for Lidarr
+
+ytarr is a node app that fakes a qBittorrent client for Lidarr to allow for yt-dlp downloads
