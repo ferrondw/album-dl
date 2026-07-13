@@ -15,6 +15,9 @@ const __dirname = path.dirname(__filename);
 
 app.use(express.json());
 
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
 const ytmusic = new YTMusic();
 await ytmusic.initialize();
 

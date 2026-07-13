@@ -7,41 +7,70 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 
+const torrents = [];
+
 export default function initClient(app) {
     app.post('/api/v2/auth/login', (req, res) => {
-        res.status(200);
+        res.cookie('SID', 'ytarr'); // not really needed but lidarr refuses to connect without cookie
+        res.type('text/plain');
+        res.send('Ok.');
     });
 
     app.get('/api/v2/app/version', (req, res) => {
-        res.setHeader('content-type', 'text/plain'); // https://stackoverflow.com/questions/51661744/how-to-set-content-type-when-doing-res-send
-        res.send('v4.1.3');
+        res.type('text/plain');
+        res.send('v5.0.5');
     });
 
     app.get('/api/v2/app/webapiVersion', (req, res) => {
-        res.setHeader('content-type', 'text/plain');
-        res.send('2.0');
+        res.type('text/plain');
+        res.send('2.11.2');
     });
 
     app.get('/api/v2/app/buildInfo', (req, res) => {
-        res.json({ "bitness": 64, "boost": "1.86.0", "libtorrent": "1.2.20.0", "openssl": "3.5.0", "platform": "windows", "qt": "6.7.3", "zlib": "1.3.1" });
+        res.json({});
     });
 
     app.get('/api/v2/app/preferences', (req, res) => {
+        res.json({});
     });
 
     app.get('/api/v2/torrents/categories', (req, res) => {
         res.json({
-            "Audio": {
-                "name": "Audio",
-                "savePath": "./temp"
+            "lidarr": {
+                "name": "lidarr",
+                "savePath": ""
             }
         })
     });
 
-    app.post('/api/v2/torrents/add', (req, res) => {
+    app.get('/api/v2/transfer/info', (req, res) => {
+        res.json({
+            "connection_status": "connected",
+            "dht_nodes": 83,
+            "dl_info_data": 0,
+            "dl_info_speed": 0,
+            "dl_rate_limit": 0,
+            "up_info_data": 0,
+            "up_info_speed": 0,
+            "up_rate_limit": 0
+        });
     });
 
-    app.get('/api/v2/torrents/info', (req, res) => {
+    app.get('/api/v2/sync/maindata', (req, res) => {
+        res.json({
+            "categories": {
+                "lidarr": {
+                    "name": "lidarr",
+                    "savePath": ""
+                }
+            },
+            "server_state": {
+                "connection_status": "connected",
+            }
+        });
+    });
+
+    app.post('/api/v2/torrents/add', (req, res) => {
     });
 
     app.post('/api/v2/torrents/delete', (req, res) => {
@@ -53,9 +82,7 @@ export default function initClient(app) {
     app.post('/api/v2/torrents/resume', (req, res) => {
     });
 
-    app.get('/api/v2/transfer/info', (req, res) => {
-    });
-
-    app.get('/api/v2/sync/maindata', (req, res) => {
+    app.get('/api/v2/torrents/info', (req, res) => {
+        res.json([]);
     });
 }
