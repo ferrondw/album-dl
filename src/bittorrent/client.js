@@ -1,13 +1,10 @@
-import { fileURLToPath } from 'url';
-import { exec, execSync } from 'child_process';
-import { FolderNameSanitizer } from '../utils/FolderNameSanitizer.js';
-import YTMusic from 'ytmusic-api';
-import NodeID3 from 'node-id3';
-import express from 'express';
-import path from 'path';
-import fs from 'fs';
+import parseTorrent from "parse-torrent";
+import { releases } from './indexer.js';
+import Constants from '../../constants.js';
+import multer from 'multer';
 
-const torrents = [];
+export const torrents = [];
+const upload = multer({ storage: multer.memoryStorage() });
 
 export default function initClient(app) {
     app.post('/api/v2/auth/login', (req, res) => {
@@ -38,7 +35,7 @@ export default function initClient(app) {
         res.json({
             "lidarr": {
                 "name": "lidarr",
-                "savePath": ""
+                "savePath": Constants.downloadPath
             }
         })
     });
@@ -61,7 +58,7 @@ export default function initClient(app) {
             "categories": {
                 "lidarr": {
                     "name": "lidarr",
-                    "savePath": ""
+                    "savePath": Constants.downloadPath
                 }
             },
             "server_state": {
@@ -70,8 +67,24 @@ export default function initClient(app) {
         });
     });
 
-    app.post('/api/v2/torrents/add', (req, res) => {
-    });
+    // https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0)#add-new-torrent
+    app.post("/api/v2/torrents/add", upload.single("torrents"), async (req, res) => {
+        try {
+            const torrent = await parseTorrent(req.file.buffer);
+            const id = torrent.name;
+            const album = releases.get(id);
+
+            console.log(`Downloading ${album.name}`);
+            fetch(`http://localhost:${process.env.PORT || 5071}/download/album/${album.artist.name} - ${album.name}`);
+
+            res.type("text/plain").send("Ok.");
+        }
+        catch (err) {
+            console.error(err);
+            res.status(400).send("nah");
+        }
+    }
+    );
 
     app.post('/api/v2/torrents/delete', (req, res) => {
     });

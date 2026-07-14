@@ -1,14 +1,8 @@
-import { fileURLToPath } from 'url';
-import { exec, execSync } from 'child_process';
-import { FolderNameSanitizer } from '../utils/FolderNameSanitizer.js';
-import YTMusic from 'ytmusic-api';
-import NodeID3 from 'node-id3';
-import express from 'express';
-import path from 'path';
-import fs from 'fs';
+import createTorrent from "create-torrent";
+import crypto from 'crypto';
+import Constants from '../../constants.js';
 
-const ytmusic = new YTMusic();
-await ytmusic.initialize();
+export let releases = new Map();
 
 export default function initIndexer(app) {
     app.get('/indexer/api', async (req, res) => {
@@ -18,8 +12,7 @@ export default function initIndexer(app) {
         if (t === 'search') return search(req, res);
         if (t === 'get') return getRelease(req, res);
 
-        res.status(400);
-        res.send('nah');
+        res.status(400).send('nah');
     });
 
     async function sendCapabilities(req, res) {
@@ -41,28 +34,51 @@ export default function initIndexer(app) {
     }
 
     async function search(req, res) {
-        const q = decodeURIComponent(req.query.q);
-        console.log(q);
-        const album = (await ytmusic.searchAlbums(q))[0];
-        console.log(album);
+        let q = decodeURIComponent(req.query.q);
+        console.log("Searching: " + q);
+        const album = (await Constants.YTMusic.searchAlbums(q))[0];
+        const id = crypto.randomUUID();
 
         res.type('application/xml');
         res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
 	<channel>
 		<item>
-			<title>${album.name} - ${album.artist.name} [${album.albumId}]</title>
+			<title>${album.artist.name} - ${album.name}</title>
+            <link>http://localhost:${process.env.PORT ?? 5071}/indexer/api?t=get&amp;id=${id}</link>
 			<pubDate>Thu, 1 Jan 2026 00:00:00 GMT</pubDate>
+            <category>3000</category>
+            <guid isPermaLink="false">${id}</guid>
 			<enclosure
-                url="http://localhost:5071/indexer/api?t=get"
-                length="20000000"
+                url="http://localhost:${process.env.PORT ?? 5071}/indexer/api?t=get&amp;id=${id}"
+                length="72351744"
                 type="application/x-bittorrent"/>
+            <newznab:attr name="artist" value="${album.artist.name}"/>
+            <newznab:attr name="album" value="${album.name}"/>
+            <newznab:attr name="artist" value="${album.artist.name}"/>
 		</item>
 	</channel>
 </rss>`);
+
+        releases.set(id, album);
     }
 
     async function getRelease(req, res) {
-        res.sendStatus(404);
+        // kinda for myself to remember
+        // i make a fake torrent with a name equal to the id of the download
+        // i export releases so that client.js can get that release from the empty torrents name
+        // and i NEED to make a 'real' torrent because lidarr checks for malformed torrent files
+        createTorrent(
+            Buffer.from(""),
+            {
+                name: req.query.id,
+            },
+            (err, torrent) => {
+                if (err) return res.status(500).send('nah');
+
+                res.type("application/x-bittorrent");
+                res.send(torrent);
+            }
+        );
     }
 }

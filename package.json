@@ -10,8 +10,12 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "create-torrent": "^6.1.2",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "multer": "^2.2.0",
     "node-id3": "^0.2.9",
+    "parse-torrent": "^11.0.21",
     "ytmusic-api": "^5.3.1"
   }
 }
