@@ -11,7 +11,7 @@ const ytmusic = new YTMusicAPI();
 await ytmusic.initialize();
 
 const Constants = {
-    downloadPath: `${__dirname}/downloads/`,
+    downloadPath: `${__dirname}\\downloads`,
     YTMusic: ytmusic,
     NodeID3: NodeID3
 }

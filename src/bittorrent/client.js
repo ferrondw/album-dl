@@ -1,17 +1,17 @@
 import { FolderNameSanitizer } from '../utils/FolderNameSanitizer.js';
 import Constants from '../../constants.js';
 import parseTorrent from "parse-torrent";
-import { exec, execSync } from 'child_process';
+import { execFile } from 'child_process';
 import { releases } from './indexer.js';
 import { promisify } from 'util';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
-const execAsync = promisify(execSync);
-
 export const jobs = new Map();
 const upload = multer({ storage: multer.memoryStorage() });
+
+const execFileAsync = promisify(execFile);
 
 //#region Client
 export default function initClient(app) {
@@ -81,6 +81,7 @@ export default function initClient(app) {
             const torrent = await parseTorrent(req.file.buffer);
             const id = torrent.name;
             const album = releases.get(id);
+            if (album === null) throw new Error('no album found');
 
             downloadAlbum(album, id);
 
@@ -98,13 +99,14 @@ export default function initClient(app) {
     });
 
     app.post('/api/v2/torrents/pause', (req, res) => {
+        console.log(req.protocol + '://' + req.get('host') + req.originalUrl);
     });
 
     app.post('/api/v2/torrents/resume', (req, res) => {
+        console.log(req.protocol + '://' + req.get('host') + req.originalUrl);
     });
 
     app.get('/api/v2/torrents/info', (req, res) => {
-        console.log(Array.from(jobs.values()));
         res.json(Array.from(jobs.values()));
     });
 }
@@ -117,8 +119,8 @@ async function downloadAlbum(album, jobId) {
     const coverImage = Buffer.from(await (await fetch(coverUrl)).arrayBuffer());
     const completeAlbum = await Constants.YTMusic.getAlbum(album.albumId);
 
-    const folderName = `${completeAlbum.artist.name} - ${completeAlbum.name} (${completeAlbum.year})`;
-    const job = jobs.set(jobId, {
+    const folderName = FolderNameSanitizer.sanitize(`${album.artist.name} - ${album.name} (${album.year})`);
+    const job = {
         "category": "lidarr",
         "content_path": `${Constants.downloadPath}\\${folderName}`,
         "eta": completeAlbum.songs.length * 10,
@@ -126,7 +128,7 @@ async function downloadAlbum(album, jobId) {
         "hash": `hash-${jobId}`,
         "infohash_v1": `infohash-${jobId}`,
         "name": folderName,
-        "progress": 0.1,
+        "progress": 0.0001,
         "root_path": `${Constants.downloadPath}\\${folderName}`,
         "save_path": Constants.downloadPath,
         "size": 100000, // lidarr ignores progress if the download doesn't have a size
@@ -137,73 +139,76 @@ async function downloadAlbum(album, jobId) {
             "album": completeAlbum,
             "coverImage": coverImage,
         },
-    });
+    };
+    jobs.set(jobId, job);
 
     for (const song of completeAlbum.songs) { // https://stackoverflow.com/questions/37576685/using-async-await-with-a-foreach-loop
-        downloadSong(song, completeAlbum, coverImage);
+        await downloadSong(song, job);
     }
 }
 
-async function downloadSong(song, album, coverImage, retryCounter = 3) {
+async function downloadSong(song, job, retryCounter = 3) {
     try {
-        const downloadPath = await execSync(
-            `yt-dlp --js-runtimes node -x -P "./downloads" --audio-format "mp3" --no-keep-video --no-playlist "https://www.youtube.com/watch?v=${song.videoId}" --print after_move:filepath`
-        ).toString().trim();
-        console.log(`downloaded`);
-        
-        const fileExtension = downloadPath.split('.').slice(-1)[0];
-        const fileName = FolderNameSanitizer.sanitize(`${song.album.name} - ${song.name} [${song.videoId}].${fileExtension}`);
-        const destination = `${__dirname}/downloads/${fileName}`;
-        
+        const downloadFolder = FolderNameSanitizer.sanitize(`${job.ytarr.album.artist.name} - ${job.ytarr.album.name} (${job.ytarr.album.year})`);
+        const downloadPath = `${Constants.downloadPath}\\${downloadFolder}\\${song.videoId}.mp3`;
+
+        await execFileAsync( // just exec promisified doesn't work for some reason, it never exits, execFile does though
+            "yt-dlp",
+            [
+                "--js-runtimes", "node",
+                "-x",
+                "-o", downloadPath,
+                "--audio-format", "mp3",
+                "--no-keep-video",
+                "--no-playlist",
+                `https://www.youtube.com/watch?v=${song.videoId}`
+            ]
+        );
+
+        console.log(`Downloaded ${song.artist.name} - ${song.name} to: ${downloadPath}`);
+
+        const fileName = FolderNameSanitizer.sanitize(`${song.album.name} - ${findTrackNumber(song, job.ytarr.album)} - ${song.name}.mp3`);
+        const destination = `${Constants.downloadPath}\\${downloadFolder}\\${fileName}`;
+
         await fs.promises.mkdir(path.dirname(destination), { recursive: true });
         await fs.promises.rename(downloadPath, destination);
-        console.log(`renamed`);
-        
+
         await new Promise(resolve => setTimeout(resolve, 300)); // wait for rename because it sometimes takes a bit
-        
-        await embedMetadata(song, album, coverImage, destination);
-        console.log(`embedded`);
+
+        await embedMetadata(song, job, destination);
     } catch (err) {
-        console.log(`error downloading: ${err}`);
-        if (retryCounter > 0) downloadSong(song, album, coverImage, retryCounter - 1);
+        if (retryCounter > 0) return downloadSong(song, job, retryCounter - 1);
+        throw err;
     }
 }
 
-async function embedMetadata(song, album, coverImage, filePath) {
-    let trackNumber = -1;
-    for (let index = 0; index < album.songs.length; index++) {
-        if (album.songs[index].videoId !== song.videoId) continue;
-        
-        trackNumber = index + 1;
-        break;
-    }
-    
+async function embedMetadata(song, job, filePath) {
     const tags = {
         title: song.name,
-        album: album.name,
+        album: job.ytarr.album.name,
         artist: song.artist.name,
         performerInfo: song.artist.name,
-        year: album.year,
+        year: job.ytarr.album.year,
         length: song.duration,
-        trackNumber,
+        trackNumber: findTrackNumber(song, job.ytarr.album),
         image: {
             mime: "image/jpeg",
             type: {
                 id: 0x03 // NodeID3.TagConstants.AttachedPicture.PictureType.FRONT_COVER
             },
             description: "album cover",
-            imageBuffer: coverImage
+            imageBuffer: job.ytarr.coverImage
         }
     }
-    
-    console.log(`embedding....`);
-    const success = Constants.NodeID3.write(tags, filePath);
-    
-    if (!success) {
-        console.error("Failed to write metadata:", Constants.NodeID3.read(filePath));
-    }
 
-    console.log(`end of embedding...`);
+    Constants.NodeID3.write(tags, filePath);
+    console.log(`Embedded ${song.artist.name} - ${song.name}`);
+
+    let progressToAdd = 1 / (job.ytarr.album.songs.length);
+    job.progress += progressToAdd;
+    console.log(`Added ${progressToAdd}... thus is now ${job.progress}`);
+    if(job.progress >= 1) job.state = 'stalledUP';
+
     /*
     await fetch(`https://lrclib.net/api/search?q=${song.name} ${song.artist.name}`).then(function (response) {
         return response.json();
@@ -213,5 +218,12 @@ async function embedMetadata(song, album, coverImage, filePath) {
         await fs.promises.writeFile(lrcPath, data[0].syncedLyrics.replace(`\n`, `\r\n`)); // windows fucked newlines or something no clue but this works
     }).catch(() => { });
     */
+}
+
+function findTrackNumber(song, album) {
+    for (let index = 0; index < album.songs.length; index++) {
+        if (album.songs[index].videoId !== song.videoId) continue;
+        return index + 1;
+    }
 }
 //#endregion
